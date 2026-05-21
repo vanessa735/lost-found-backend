@@ -1,7 +1,7 @@
 'use strict';
 
 // ═══════════════════════════════════════════════════════════════════
-//  FindIt API Server — Terminal Reporter Edition
+//  FindIt API Server
 // ═══════════════════════════════════════════════════════════════════
 const express = require('express');
 const cors    = require('cors');
@@ -10,65 +10,42 @@ const fs      = require('fs');
 const http    = require('http');
 require('dotenv').config();
 
-const app    = express();
-const db     = require('./config/db');
+const app = express();
+const db  = require('./config/db');
 const server = http.createServer(app);
 
 // ═══════════════════════════════════════════════════════════════════
 //  ANSI COLORS
 // ═══════════════════════════════════════════════════════════════════
 const C = {
-  reset:    '\x1b[0m',
-  bold:     '\x1b[1m',
-  dim:      '\x1b[2m',
-  red:      '\x1b[31m',
-  green:    '\x1b[32m',
-  yellow:   '\x1b[33m',
-  blue:     '\x1b[34m',
-  magenta:  '\x1b[35m',
-  cyan:     '\x1b[36m',
-  white:    '\x1b[37m',
-  gray:     '\x1b[90m',
-  bRed:     '\x1b[91m',
-  bGreen:   '\x1b[92m',
-  bYellow:  '\x1b[93m',
-  bBlue:    '\x1b[94m',
-  bMagenta: '\x1b[95m',
-  bCyan:    '\x1b[96m',
-  bWhite:   '\x1b[97m',
-  bgBlack:  '\x1b[40m',
-  bgRed:    '\x1b[41m',
-  bgGreen:  '\x1b[42m',
-  bgYellow: '\x1b[43m',
-  bgBlue:   '\x1b[44m',
-  bgGray:   '\x1b[100m',
+  reset:    '\x1b[0m',  bold:     '\x1b[1m',   dim:      '\x1b[2m',
+  red:      '\x1b[31m', green:    '\x1b[32m',   yellow:   '\x1b[33m',
+  blue:     '\x1b[34m', magenta:  '\x1b[35m',   cyan:     '\x1b[36m',
+  white:    '\x1b[37m', gray:     '\x1b[90m',   bRed:     '\x1b[91m',
+  bGreen:   '\x1b[92m', bYellow:  '\x1b[93m',   bBlue:    '\x1b[94m',
+  bMagenta: '\x1b[95m', bCyan:    '\x1b[96m',   bWhite:   '\x1b[97m',
+  bgBlack:  '\x1b[40m', bgRed:    '\x1b[41m',   bgGreen:  '\x1b[42m',
+  bgYellow: '\x1b[43m', bgBlue:   '\x1b[44m',   bgGray:   '\x1b[100m',
 };
-
 const clr  = (color, text) => `${color}${text}${C.reset}`;
-const bold  = (text)       => `${C.bold}${text}${C.reset}`;
-const dim   = (text)       => `${C.dim}${text}${C.reset}`;
+const bold = (text)        => `${C.bold}${text}${C.reset}`;
+const dim  = (text)        => `${C.dim}${text}${C.reset}`;
 
 // ═══════════════════════════════════════════════════════════════════
 //  CONSTANTS
 // ═══════════════════════════════════════════════════════════════════
 const SERVER_START = Date.now();
 const NODE_ENV     = process.env.NODE_ENV || 'development';
-const PORT         = parseInt(process.env.PORT || '5000', 10);
+const PORT         = parseInt(process.env.PORT || '5001', 10);
+const IS_PROD      = NODE_ENV === 'production';
 
 // ═══════════════════════════════════════════════════════════════════
-//  STATS ENGINE
+//  STATS
 // ═══════════════════════════════════════════════════════════════════
 const stats = {
-  total:    0,
-  success:  0,
-  errors:   0,
-  totalMs:  0,
+  total: 0, success: 0, errors: 0, totalMs: 0,
   methods:  { GET: 0, POST: 0, PUT: 0, DELETE: 0, PATCH: 0, OPTIONS: 0 },
-  statuses: {},
-  routes:   {},
-  slowest:  [],   // top-5 slowest
-  recent:   [],   // last 50
-  errorLog: [],   // last 20 errors
+  statuses: {}, routes: {}, slowest: [], recent: [], errorLog: [],
 };
 
 // ═══════════════════════════════════════════════════════════════════
@@ -77,10 +54,12 @@ const stats = {
 const ROUTE_REGISTRY = [];
 
 // ═══════════════════════════════════════════════════════════════════
-//  ALLOWED ORIGINS
+//  CORS — MUST be the very first middleware
 // ═══════════════════════════════════════════════════════════════════
-const ALLOWED_ORIGINS = [
-  // ── Local development ─────────────────────────────────────────
+
+// Explicit allowed origins
+const EXPLICIT_ORIGINS = [
+  // ── Local ──────────────────────────────────────────────────────
   'http://localhost:3000',
   'http://localhost:5000',
   'http://localhost:5001',
@@ -89,54 +68,79 @@ const ALLOWED_ORIGINS = [
   'http://127.0.0.1:3000',
   'http://127.0.0.1:5001',
   'http://127.0.0.1:5173',
-  // ── Production ────────────────────────────────────────────────
+  // ── Production ─────────────────────────────────────────────────
   'https://finditbridge.vercel.app',
+  'https://lostandfound-git-main-vanessa-iradukunda-s-projects.vercel.app',
   'https://lost-found-backend-32lt.onrender.com',
-  // ── Extra origins from env ────────────────────────────────────
+  // ── From Render env (comma-separated) ──────────────────────────
   ...(process.env.ALLOWED_ORIGINS
-    ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
+    ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim()).filter(Boolean)
     : []),
 ];
 
-// ═══════════════════════════════════════════════════════════════════
-//  CORS MIDDLEWARE
-// ═══════════════════════════════════════════════════════════════════
-app.use(cors({
+// Pattern-based: allow ANY vercel.app or onrender.com subdomain
+const isOriginAllowed = (origin) => {
+  if (!origin)                                           return true;  // Postman/curl
+  if (EXPLICIT_ORIGINS.includes(origin))                 return true;  // exact match
+  if (/^https:\/\/[a-z0-9-]+\.vercel\.app$/.test(origin))  return true;  // any Vercel preview
+  if (/^https:\/\/[a-z0-9-]+\.onrender\.com$/.test(origin)) return true; // any Render URL
+  return false;
+};
+
+const corsOptions = {
   origin: (origin, cb) => {
-    // Allow requests with no origin (curl, mobile apps, Postman)
-    if (!origin) return cb(null, true);
-    if (ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
-    console.warn(`[CORS] Blocked origin: ${origin}`);
-    cb(new Error(`CORS: Origin ${origin} not allowed`));
+    if (isOriginAllowed(origin)) {
+      return cb(null, true);
+    }
+    console.warn(clr(C.bYellow, `  [CORS] Blocked: ${origin}`));
+    return cb(new Error(`CORS policy: origin ${origin} is not allowed`));
   },
-  credentials:    true,
-  methods:        ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-  optionsSuccessStatus: 200, // ← important for Safari + preflight
-}));
+  credentials:          true,
+  methods:              ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders:       ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
+  exposedHeaders:       ['Content-Range', 'X-Content-Range'],
+  optionsSuccessStatus: 200,
+  maxAge:               86400, // cache preflight for 24h
+};
 
-// ── Handle OPTIONS preflight for ALL routes ───────────────────────
-app.options('*', cors());
+// ── Apply CORS before EVERYTHING else ────────────────────────────
+app.use(cors(corsOptions));
 
-// Security headers
+// ── Respond to ALL OPTIONS preflight requests immediately ─────────
+app.options('*', cors(corsOptions));
+
+// ═══════════════════════════════════════════════════════════════════
+//  SECURITY HEADERS
+//  NOTE: Do NOT set Cross-Origin-Opener-Policy here — it breaks
+//        cross-origin requests from Vercel to Render.
+//        Only set it on the FRONTEND (Vite config), not the API.
+// ═══════════════════════════════════════════════════════════════════
 app.use((_req, res, next) => {
-  res.setHeader('X-Powered-By',                'FindIt API');
-  res.setHeader('Cross-Origin-Opener-Policy',  'same-origin-allow-popups');
-  res.setHeader('Cross-Origin-Embedder-Policy','unsafe-none');
-  res.setHeader('X-Content-Type-Options',      'nosniff');
+  res.setHeader('X-Powered-By',       'FindIt API');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options',    'DENY');
+  res.setHeader('Referrer-Policy',    'strict-origin-when-cross-origin');
+  // ⚠️  DO NOT add Cross-Origin-Opener-Policy here —
+  //     it breaks cross-origin XHR from Vercel frontend
   next();
 });
 
-// Body parsers
+// ═══════════════════════════════════════════════════════════════════
+//  BODY PARSERS
+// ═══════════════════════════════════════════════════════════════════
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Static uploads
+// ═══════════════════════════════════════════════════════════════════
+//  STATIC UPLOADS
+// ═══════════════════════════════════════════════════════════════════
 const UPLOADS_DIR = path.join(__dirname, 'uploads');
 if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 app.use('/uploads', express.static(UPLOADS_DIR));
 
-// ─── Request Logger ───────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════
+//  REQUEST LOGGER
+// ═══════════════════════════════════════════════════════════════════
 app.use((req, res, next) => {
   const start    = Date.now();
   const routeKey = `${req.method} ${req.path}`;
@@ -150,8 +154,8 @@ app.use((req, res, next) => {
     const ms     = Date.now() - start;
     const status = res.statusCode;
 
-    stats.totalMs                += ms;
-    stats.statuses[status]        = (stats.statuses[status] || 0) + 1;
+    stats.totalMs           += ms;
+    stats.statuses[status]   = (stats.statuses[status] || 0) + 1;
 
     if (status >= 400) {
       stats.errors++;
@@ -165,50 +169,33 @@ app.use((req, res, next) => {
       stats.success++;
     }
 
-    // Slowest tracker
     stats.slowest.push({ method: req.method, path: req.path, ms, status });
     stats.slowest.sort((a, b) => b.ms - a.ms);
     if (stats.slowest.length > 5) stats.slowest.length = 5;
 
-    // Recent log
     stats.recent.unshift({
       method: req.method, path: req.path,
       status, ms: `${ms}ms`, time: new Date().toISOString(),
     });
     if (stats.recent.length > 50) stats.recent.length = 50;
 
-    // ── Terminal output ──────────────────────────────────────────
-    // Skip health check noise
     if (req.path !== '/api/health') {
       const methodColor = {
-        GET:     C.bBlue,
-        POST:    C.bGreen,
-        PUT:     C.bYellow,
-        DELETE:  C.bRed,
-        PATCH:   C.bMagenta,
-        OPTIONS: C.gray,
+        GET: C.bBlue, POST: C.bGreen, PUT: C.bYellow,
+        DELETE: C.bRed, PATCH: C.bMagenta, OPTIONS: C.gray,
       }[req.method] || C.white;
 
       const statusColor = status < 300 ? C.bGreen
-        : status < 400 ? C.bCyan
-        : status < 500 ? C.bYellow
-        : C.bRed;
-
-      const msColor = ms < 100 ? C.bGreen
-        : ms < 500  ? C.bYellow
-        : C.bRed;
-
-      const statusIcon = status < 300 ? '✔'
-        : status < 400 ? '↪'
-        : status < 500 ? '✘'
-        : '💥';
+        : status < 400 ? C.bCyan : status < 500 ? C.bYellow : C.bRed;
+      const msColor     = ms < 100 ? C.bGreen : ms < 500 ? C.bYellow : C.bRed;
+      const statusIcon  = status < 300 ? '✔' : status < 400 ? '↪' : status < 500 ? '✘' : '💥';
 
       process.stdout.write(
-        `  ${clr(C.gray,       new Date().toTimeString().slice(0, 8))} ` +
-        `${clr(methodColor,    req.method.padEnd(7))}` +
-        `${clr(C.bWhite,       req.path.padEnd(48))}` +
-        `${clr(statusColor,    `${statusIcon} ${status}`).padEnd(8)} ` +
-        `${clr(msColor,        `${ms}ms`.padStart(7))}\n`
+        `  ${clr(C.gray,    new Date().toTimeString().slice(0, 8))} ` +
+        `${clr(methodColor, req.method.padEnd(7))}` +
+        `${clr(C.bWhite,    req.path.padEnd(48))}` +
+        `${clr(statusColor, `${statusIcon} ${status}`).padEnd(8)} ` +
+        `${clr(msColor,     `${ms}ms`.padStart(7))}\n`
       );
     }
 
@@ -222,14 +209,14 @@ app.use((req, res, next) => {
 //  ROUTE LOADER
 // ═══════════════════════════════════════════════════════════════════
 function mountRoutes() {
-const routes = [
+  const routes = [
     { prefix: '/api/auth',          file: './routes/authRoutes',        label: 'Auth'          },
     { prefix: '/api/items',         file: './routes/itemRoutes',         label: 'Items'         },
     { prefix: '/api/matches',       file: './routes/matchRoutes',        label: 'Matches'       },
     { prefix: '/api/notifications', file: './routes/notificationRoutes', label: 'Notifications' },
     { prefix: '/api/contact',       file: './routes/contactRoutes',      label: 'Contact'       },
-    { prefix: '/api/subscribe',     file: './routes/subscribeRoutes',    label: 'Subscribe'     }, // ← ADD
-];
+    { prefix: '/api/subscribe',     file: './routes/subscribeRoutes',    label: 'Subscribe'     },
+  ];
 
   const PAD_LABEL  = 16;
   const PAD_PREFIX = 28;
@@ -263,7 +250,6 @@ const routes = [
         `${clr(C.cyan,     prefix.padEnd(PAD_PREFIX))} ` +
         `${clr(C.gray,     `${endpoints.length} endpoint(s)`)}`
       );
-
     } catch (err) {
       console.log(
         `  ${clr(C.bRed, '✘')} ` +
@@ -294,18 +280,8 @@ const fmtUptime = (ms) => {
     .filter(Boolean).join(' ');
 };
 
-const safeQuery = async (sql, params = []) => {
-  try {
-    const [rows] = await db.query(sql, params);
-    return rows;
-  } catch (err) {
-    console.error(clr(C.bRed, `  [DB] ${err.message}`));
-    return null;
-  }
-};
-
 // ═══════════════════════════════════════════════════════════════════
-//  ROOT — pure JSON, no HTML
+//  ROOT
 // ═══════════════════════════════════════════════════════════════════
 app.get('/', async (_req, res) => {
   let dbOk = false;
@@ -320,69 +296,15 @@ app.get('/', async (_req, res) => {
     version: '1.0.0',
     status:  'online',
     message: '🔍 FindIt Lost & Found API Server is running',
-    server: {
-      node:        process.version,
-      environment: NODE_ENV,
-      port:        PORT,
-      uptime:      fmtUptime(Date.now() - SERVER_START),
-      started:     new Date(SERVER_START).toISOString(),
-    },
-    database: {
-      status:  dbOk ? 'connected' : 'disconnected',
-    },
-    performance: {
-      total_requests: stats.total,
-      success:        stats.success,
-      errors:         stats.errors,
-      success_rate:   `${successRate}%`,
-      avg_response:   `${avgMs}ms`,
-    },
-    endpoints: {
-      health:     `GET /api/health`,
-      test:       `GET /api/test`,
-      stats:      `GET /api/items/stats/overview`,
-      categories: `GET /api/items/categories/all`,
-      items:      `GET /api/items`,
-      auth: {
-        register:        'POST /api/auth/register',
-        login:           'POST /api/auth/login',
-        google:          'POST /api/auth/google',
-        me:              'GET  /api/auth/me',
-        profile:         'PUT  /api/auth/profile',
-        change_password: 'PUT  /api/auth/change-password',
-        upload_avatar:   'POST /api/auth/upload-avatar',
-      },
-      items_api: {
-        list:       'GET    /api/items',
-        stats:      'GET    /api/items/stats/overview',
-        categories: 'GET    /api/items/categories/all',
-        my_items:   'GET    /api/items/my/items',
-        detail:     'GET    /api/items/:id',
-        create:     'POST   /api/items',
-        update:     'PUT    /api/items/:id',
-        delete:     'DELETE /api/items/:id',
-      },
-      matches_api: {
-        list:     'GET /api/matches',
-        confirm:  'PUT /api/matches/:id/confirm',
-        reject:   'PUT /api/matches/:id/reject',
-        returned: 'PUT /api/matches/:id/returned',
-      },
-      notifications_api: {
-        list:      'GET /api/notifications',
-        read_all:  'PUT /api/notifications/read-all',
-        read_one:  'PUT /api/notifications/:id/read',
-      },
-      contact_api: {
-        send: 'POST /api/contact',
-      },
-    },
+    server:  { node: process.version, environment: NODE_ENV, port: PORT, uptime: fmtUptime(Date.now() - SERVER_START) },
+    database: { status: dbOk ? 'connected' : 'disconnected' },
+    performance: { total_requests: stats.total, success: stats.success, errors: stats.errors, success_rate: `${successRate}%`, avg_response: `${avgMs}ms` },
     timestamp: new Date().toISOString(),
   });
 });
 
 // ═══════════════════════════════════════════════════════════════════
-//  HEALTH CHECK — pure JSON
+//  HEALTH CHECK
 // ═══════════════════════════════════════════════════════════════════
 app.get('/api/health', async (_req, res) => {
   let dbOk = false, dbMs = 0;
@@ -400,23 +322,12 @@ app.get('/api/health', async (_req, res) => {
     success:  dbOk,
     status:   dbOk ? 'healthy' : 'degraded',
     message:  dbOk ? '🟢 FindIt API is running!' : '🔴 Database connection failed',
-    server: {
-      status:      'online',
-      uptime:      fmtUptime(Date.now() - SERVER_START),
-      environment: NODE_ENV,
-      node:        process.version,
-      port:        PORT,
-    },
-    database: {
-      status:  dbOk ? 'connected' : 'disconnected',
-      latency: `${dbMs}ms`,
-    },
-    requests: {
-      total:        stats.total,
-      success:      stats.success,
-      errors:       stats.errors,
-      success_rate: `${successRate}%`,
-      avg_response: `${avgMs}ms`,
+    server:   { status: 'online', uptime: fmtUptime(Date.now() - SERVER_START), environment: NODE_ENV, node: process.version, port: PORT },
+    database: { status: dbOk ? 'connected' : 'disconnected', latency: `${dbMs}ms` },
+    requests: { total: stats.total, success: stats.success, errors: stats.errors, success_rate: `${successRate}%`, avg_response: `${avgMs}ms` },
+    cors: {
+      allowed_origins: EXPLICIT_ORIGINS,
+      pattern_rules:   ['*.vercel.app', '*.onrender.com'],
     },
     slowest_requests: stats.slowest,
     timestamp: new Date().toISOString(),
@@ -425,7 +336,7 @@ app.get('/api/health', async (_req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════════════
-//  TEST ENDPOINT — pure JSON
+//  TEST
 // ═══════════════════════════════════════════════════════════════════
 app.get('/api/test', (_req, res) => {
   return res.json({
@@ -435,21 +346,20 @@ app.get('/api/test', (_req, res) => {
     methods:  stats.methods,
     statuses: stats.statuses,
     top_routes: Object.entries(stats.routes)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 10)
+      .sort((a, b) => b[1] - a[1]).slice(0, 10)
       .map(([route, hits]) => ({ route, hits })),
     timestamp: new Date().toISOString(),
   });
 });
 
 // ═══════════════════════════════════════════════════════════════════
-//  404 HANDLER
+//  404
 // ═══════════════════════════════════════════════════════════════════
 app.use((req, res) => {
   return res.status(404).json({
     success: false,
     message: `Route not found: ${req.method} ${req.path}`,
-    hint:    'GET / for available endpoints, GET /api/health for status',
+    hint:    'GET /api/health for status',
   });
 });
 
@@ -460,7 +370,7 @@ app.use((err, _req, res, _next) => {
   console.error(clr(C.bRed, `\n  [ERROR] ${err.message}\n`));
   return res.status(err.status || 500).json({
     success: false,
-    message: NODE_ENV === 'production' ? 'Internal server error' : err.message,
+    message: IS_PROD ? 'Internal server error' : err.message,
   });
 });
 
@@ -468,7 +378,6 @@ app.use((err, _req, res, _next) => {
 //  BOOT
 // ═══════════════════════════════════════════════════════════════════
 async function boot() {
-  // DB ping
   let dbOk = false, dbMs = 0;
   try {
     const t = Date.now();
@@ -480,164 +389,97 @@ async function boot() {
   }
 
   server.listen(PORT, () => {
-
-    // ── Box drawing ──────────────────────────────────────────────
-    const BW   = 60;
-    const top  = `╔${'═'.repeat(BW)}╗`;
-    const bot  = `╚${'═'.repeat(BW)}╝`;
-    const mid  = `╠${'═'.repeat(BW)}╣`;
-    const row  = (txt = '') => {
+    const BW  = 60;
+    const top = `╔${'═'.repeat(BW)}╗`;
+    const bot = `╚${'═'.repeat(BW)}╝`;
+    const mid = `╠${'═'.repeat(BW)}╣`;
+    const row = (txt = '') => {
       const clean = txt.replace(/\x1b\[[0-9;]*m/g, '');
       const pad   = Math.max(0, BW - 2 - clean.length);
       return `║  ${txt}${' '.repeat(pad)}  ║`;
     };
-    const center = (txt) => {
-      const clean = txt.replace(/\x1b\[[0-9;]*m/g, '');
-      const pad   = Math.max(0, Math.floor((BW - clean.length) / 2));
-      return row(' '.repeat(pad) + txt);
-    };
-
-    const b = clr(C.bBlue, '');   // shorthand for boxing color
-
-    const box = (lines) => lines.map(l =>
-      clr(C.bBlue, '║') + l + clr(C.bBlue, '║')
-    );
 
     console.log('\n');
     console.log(clr(C.bBlue, top));
     console.log(clr(C.bBlue, row()));
 
-    // Title
-    const titleRaw  = '🔍  FindIt  —  Lost & Found Platform';
-    const subRaw    = 'API Server  ·  Express + MySQL';
-    const tPad      = Math.max(0, Math.floor((BW - 2 - titleRaw.length) / 2));
-    const sPad      = Math.max(0, Math.floor((BW - 2 - subRaw.length)   / 2));
+    const titleRaw = '🔍  FindIt  —  Lost & Found Platform';
+    const subRaw   = 'API Server  ·  Express + MySQL';
+    const tPad     = Math.max(0, Math.floor((BW - 2 - titleRaw.length) / 2));
+    const sPad     = Math.max(0, Math.floor((BW - 2 - subRaw.length)   / 2));
 
-    console.log(
-      clr(C.bBlue, '║') +
-      ' '.repeat(tPad) + bold(clr(C.bCyan, titleRaw)) +
-      ' '.repeat(BW - 2 - tPad - titleRaw.length) +
-      clr(C.bBlue, '║')
-    );
-    console.log(
-      clr(C.bBlue, '║') +
-      ' '.repeat(sPad) + dim(clr(C.gray, subRaw)) +
-      ' '.repeat(BW - 2 - sPad - subRaw.length) +
-      clr(C.bBlue, '║')
-    );
+    console.log(clr(C.bBlue, '║') + ' '.repeat(tPad) + bold(clr(C.bCyan, titleRaw)) + ' '.repeat(BW - 2 - tPad - titleRaw.length) + clr(C.bBlue, '║'));
+    console.log(clr(C.bBlue, '║') + ' '.repeat(sPad) + dim(clr(C.gray,   subRaw))   + ' '.repeat(BW - 2 - sPad - subRaw.length)   + clr(C.bBlue, '║'));
 
     console.log(clr(C.bBlue, row()));
     console.log(clr(C.bBlue, mid));
     console.log(clr(C.bBlue, row()));
 
-    // Info rows
     const infoRows = [
-      ['📡 Port',       clr(C.bGreen,   String(PORT))],
-      ['🌐 URL',        clr(C.bCyan,    `http://localhost:${PORT}`)],
-      ['💚 Health',     clr(C.bCyan,    `http://localhost:${PORT}/api/health`)],
-      ['🧪 Test',       clr(C.bCyan,    `http://localhost:${PORT}/api/test`)],
-      ['🔧 Env',        clr(C.bYellow,  NODE_ENV)],
-      ['🗄️  Database',  dbOk
+      ['📡 Port',      clr(C.bGreen,  String(PORT))],
+      ['🌐 URL',       clr(C.bCyan,   `http://localhost:${PORT}`)],
+      ['💚 Health',    clr(C.bCyan,   `http://localhost:${PORT}/api/health`)],
+      ['🔧 Env',       clr(C.bYellow, NODE_ENV)],
+      ['🗄️  Database', dbOk
         ? `${clr(C.bGreen, '✔ Connected')} ${clr(C.gray, `(${dbMs}ms)`)}`
-        : clr(C.bRed, '✘ Disconnected — check .env')],
-      ['🕐 Started',    clr(C.gray, new Date(SERVER_START).toLocaleString())],
+        : clr(C.bRed, '✘ Disconnected')],
+      ['🕐 Started',   clr(C.gray, new Date(SERVER_START).toLocaleString())],
     ];
 
     infoRows.forEach(([label, value]) => {
-      const labelClean = label.replace(/\x1b\[[0-9;]*m/g, '');
-      const valueClean = value.replace(/\x1b\[[0-9;]*m/g, '');
-      const spaces     = Math.max(1, BW - 2 - labelClean.length - 2 - valueClean.length);
-      console.log(
-        clr(C.bBlue, '║') +
-        `  ${clr(C.gray, label)}  ${value}` +
-        ' '.repeat(spaces) +
-        clr(C.bBlue, '║')
-      );
+      const lc = label.replace(/\x1b\[[0-9;]*m/g, '');
+      const vc = value.replace(/\x1b\[[0-9;]*m/g, '');
+      const sp = Math.max(1, BW - 2 - lc.length - 2 - vc.length);
+      console.log(clr(C.bBlue, '║') + `  ${clr(C.gray, label)}  ${value}` + ' '.repeat(sp) + clr(C.bBlue, '║'));
     });
 
     console.log(clr(C.bBlue, row()));
     console.log(clr(C.bBlue, mid));
     console.log(clr(C.bBlue, row()));
 
-    // Route groups summary
-    const groups = [
+    [
       { label: '🔐 Auth',          prefix: '/api/auth'          },
       { label: '📦 Items',         prefix: '/api/items'         },
       { label: '🔗 Matches',       prefix: '/api/matches'       },
       { label: '🔔 Notifications', prefix: '/api/notifications' },
       { label: '📬 Contact',       prefix: '/api/contact'       },
-    ];
-
-    groups.forEach(({ label, prefix }) => {
+      { label: '📧 Subscribe',     prefix: '/api/subscribe'     },
+    ].forEach(({ label, prefix }) => {
       const count  = ROUTE_REGISTRY.filter(r => r.path.startsWith(prefix)).length;
-      const status = count > 0
-        ? clr(C.bGreen,  `✔  ${count} route${count !== 1 ? 's' : ''}`)
-        : clr(C.bYellow, '⚠  0 routes');
-
-      const labelClean  = label.replace(/\x1b\[[0-9;]*m/g, '');
-      const statusClean = status.replace(/\x1b\[[0-9;]*m/g, '');
-      const spaces      = Math.max(1, BW - 2 - labelClean.length - 2 - statusClean.length);
-
-      console.log(
-        clr(C.bBlue, '║') +
-        `  ${clr(C.white, label)}  ${status}` +
-        ' '.repeat(spaces) +
-        clr(C.bBlue, '║')
-      );
+      const status = count > 0 ? clr(C.bGreen, `✔  ${count} route${count !== 1 ? 's' : ''}`) : clr(C.bYellow, '⚠  0 routes');
+      const lc     = label.replace(/\x1b\[[0-9;]*m/g, '');
+      const sc     = status.replace(/\x1b\[[0-9;]*m/g, '');
+      const sp     = Math.max(1, BW - 2 - lc.length - 2 - sc.length);
+      console.log(clr(C.bBlue, '║') + `  ${clr(C.white, label)}  ${status}` + ' '.repeat(sp) + clr(C.bBlue, '║'));
     });
 
     console.log(clr(C.bBlue, row()));
 
-    // Total
-    const totalLine  = `✔  ${ROUTE_REGISTRY.length} total API endpoints registered`;
-    const totalClean = totalLine.replace(/\x1b\[[0-9;]*m/g, '');
-    const tSpaces    = Math.max(1, BW - 2 - totalClean.length);
-    console.log(
-      clr(C.bBlue, '║') +
-      `  ${clr(C.bGreen, totalLine)}` +
-      ' '.repeat(tSpaces) +
-      clr(C.bBlue, '║')
-    );
+    const tl = `✔  ${ROUTE_REGISTRY.length} total API endpoints registered`;
+    const ts = Math.max(1, BW - 2 - tl.length);
+    console.log(clr(C.bBlue, '║') + `  ${clr(C.bGreen, tl)}` + ' '.repeat(ts) + clr(C.bBlue, '║'));
 
     console.log(clr(C.bBlue, row()));
     console.log(clr(C.bBlue, bot));
 
-    // ── Request log header ───────────────────────────────────────
     console.log(
       `\n  ${clr(C.bgGray + C.bWhite, '  REQUEST LOG  ')}\n` +
-      `  ${clr(C.gray, 'TIME    ')} ` +
-      `${clr(C.gray, 'METHOD  ')} ` +
-      `${clr(C.gray, 'PATH'.padEnd(48))} ` +
-      `${clr(C.gray, 'STATUS')} ` +
-      `${clr(C.gray, '    MS')}\n` +
+      `  ${clr(C.gray, 'TIME    ')} ${clr(C.gray, 'METHOD  ')} ` +
+      `${clr(C.gray, 'PATH'.padEnd(48))} ${clr(C.gray, 'STATUS')} ${clr(C.gray, '    MS')}\n` +
       `  ${clr(C.gray, '─'.repeat(88))}\n`
     );
   });
 
-  // ─── Graceful shutdown ─────────────────────────────────────────
   const shutdown = (sig) => {
-    console.log(`\n  ${clr(C.bYellow, `[${sig}] Shutting down gracefully...`)}`);
-    server.close(() => {
-      console.log(clr(C.bGreen, '  ✔ Server closed.\n'));
-      process.exit(0);
-    });
-    setTimeout(() => {
-      console.error(clr(C.bRed, '  ✘ Forced exit after timeout.'));
-      process.exit(1);
-    }, 8000);
+    console.log(`\n  ${clr(C.bYellow, `[${sig}] Shutting down...`)}`);
+    server.close(() => { console.log(clr(C.bGreen, '  ✔ Server closed.\n')); process.exit(0); });
+    setTimeout(() => { console.error(clr(C.bRed, '  ✘ Forced exit.')); process.exit(1); }, 8000);
   };
 
   process.on('SIGTERM', () => shutdown('SIGTERM'));
   process.on('SIGINT',  () => shutdown('SIGINT'));
-
-  process.on('uncaughtException', (err) => {
-    console.error(clr(C.bRed, `\n  [UNCAUGHT EXCEPTION] ${err.message}`));
-    console.error(dim(err.stack));
-  });
-
-  process.on('unhandledRejection', (reason) => {
-    console.error(clr(C.bRed, `\n  [UNHANDLED REJECTION] ${String(reason)}`));
-  });
+  process.on('uncaughtException',  (err)    => console.error(clr(C.bRed, `\n  [UNCAUGHT] ${err.message}`)));
+  process.on('unhandledRejection', (reason) => console.error(clr(C.bRed, `\n  [UNHANDLED] ${String(reason)}`)));
 }
 
 boot();
