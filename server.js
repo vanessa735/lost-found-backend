@@ -80,6 +80,7 @@ const ROUTE_REGISTRY = [];
 //  ALLOWED ORIGINS
 // ═══════════════════════════════════════════════════════════════════
 const ALLOWED_ORIGINS = [
+  // ── Local development ─────────────────────────────────────────
   'http://localhost:3000',
   'http://localhost:5000',
   'http://localhost:5001',
@@ -88,28 +89,34 @@ const ALLOWED_ORIGINS = [
   'http://127.0.0.1:3000',
   'http://127.0.0.1:5001',
   'http://127.0.0.1:5173',
-  // ── Production ────────────────────────────────────────────────────
-  'https://finditbridge.vercel.app',          // ← your Vercel frontend
-  'https://lost-found-backend-32lt.onrender.com', // ← your Render backend
+  // ── Production ────────────────────────────────────────────────
+  'https://finditbridge.vercel.app',
+  'https://lost-found-backend-32lt.onrender.com',
+  // ── Extra origins from env ────────────────────────────────────
   ...(process.env.ALLOWED_ORIGINS
     ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
     : []),
 ];
 
 // ═══════════════════════════════════════════════════════════════════
-//  MIDDLEWARE
+//  CORS MIDDLEWARE
 // ═══════════════════════════════════════════════════════════════════
-
-// CORS
 app.use(cors({
   origin: (origin, cb) => {
-    if (!origin || ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
+    // Allow requests with no origin (curl, mobile apps, Postman)
+    if (!origin) return cb(null, true);
+    if (ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
+    console.warn(`[CORS] Blocked origin: ${origin}`);
     cb(new Error(`CORS: Origin ${origin} not allowed`));
   },
   credentials:    true,
   methods:        ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  optionsSuccessStatus: 200, // ← important for Safari + preflight
 }));
+
+// ── Handle OPTIONS preflight for ALL routes ───────────────────────
+app.options('*', cors());
 
 // Security headers
 app.use((_req, res, next) => {
