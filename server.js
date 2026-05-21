@@ -10,8 +10,8 @@ const fs      = require('fs');
 const http    = require('http');
 require('dotenv').config();
 
-const app = express();
-const db  = require('./config/db');
+const app    = express();
+const db     = require('./config/db');
 const server = http.createServer(app);
 
 // ═══════════════════════════════════════════════════════════════════
@@ -54,12 +54,13 @@ const stats = {
 const ROUTE_REGISTRY = [];
 
 // ═══════════════════════════════════════════════════════════════════
-//  CORS — MUST be the very first middleware
+//  CORS CONFIGURATION
+//  Must be the very FIRST middleware — before everything else
 // ═══════════════════════════════════════════════════════════════════
 
-// Explicit allowed origins
+// Explicit allowed origins list
 const EXPLICIT_ORIGINS = [
-  // ── Local ──────────────────────────────────────────────────────
+  // ── Local development ───────────────────────────────────────────
   'http://localhost:3000',
   'http://localhost:5000',
   'http://localhost:5001',
@@ -72,18 +73,21 @@ const EXPLICIT_ORIGINS = [
   'https://finditbridge.vercel.app',
   'https://lostandfound-git-main-vanessa-iradukunda-s-projects.vercel.app',
   'https://lost-found-backend-32lt.onrender.com',
-  // ── From Render env (comma-separated) ──────────────────────────
+  // ── Dynamic from Render env var (comma-separated) ───────────────
   ...(process.env.ALLOWED_ORIGINS
     ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim()).filter(Boolean)
     : []),
 ];
 
-// Pattern-based: allow ANY vercel.app or onrender.com subdomain
+/**
+ * Returns true if the given origin should be allowed.
+ * Handles null/undefined (Postman, curl, server-to-server).
+ */
 const isOriginAllowed = (origin) => {
-  if (!origin)                                           return true;  // Postman/curl
-  if (EXPLICIT_ORIGINS.includes(origin))                 return true;  // exact match
-  if (/^https:\/\/[a-z0-9-]+\.vercel\.app$/.test(origin))  return true;  // any Vercel preview
-  if (/^https:\/\/[a-z0-9-]+\.onrender\.com$/.test(origin)) return true; // any Render URL
+  if (!origin)                                                      return true;
+  if (EXPLICIT_ORIGINS.includes(origin))                            return true;
+  if (/^https:\/\/[a-z0-9-]+\.vercel\.app$/i.test(origin))         return true;
+  if (/^https:\/\/[a-z0-9-]+\.onrender\.com$/i.test(origin))       return true;
   return false;
 };
 
@@ -92,36 +96,50 @@ const corsOptions = {
     if (isOriginAllowed(origin)) {
       return cb(null, true);
     }
-    console.warn(clr(C.bYellow, `  [CORS] Blocked: ${origin}`));
-    return cb(new Error(`CORS policy: origin ${origin} is not allowed`));
+    console.warn(clr(C.bYellow, `  [CORS] Blocked origin: ${origin}`));
+    return cb(new Error(`CORS policy: origin "${origin}" is not allowed`));
   },
   credentials:          true,
   methods:              ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders:       ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
   exposedHeaders:       ['Content-Range', 'X-Content-Range'],
   optionsSuccessStatus: 200,
-  maxAge:               86400, // cache preflight for 24h
+  maxAge:               86_400, // cache preflight 24 h
 };
 
-// ── Apply CORS before EVERYTHING else ────────────────────────────
+// ── 1. Apply cors() middleware ────────────────────────────────────
 app.use(cors(corsOptions));
 
-// ── Respond to ALL OPTIONS preflight requests immediately ─────────
+// ── 2. Handle ALL OPTIONS preflight requests immediately ──────────
 app.options('*', cors(corsOptions));
+
+// ── 3. Force CORS headers on EVERY response ───────────────────────
+//    This is the nuclear option that guarantees headers are present
+//    even when Express error handlers swallow them.
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (isOriginAllowed(origin)) {
+    // Echo the exact origin back (required when credentials:true)
+    res.setHeader('Access-Control-Allow-Origin',      origin || '*');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Methods',     'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers',     'Content-Type,Authorization,X-Requested-With,Accept');
+    res.setHeader('Access-Control-Expose-Headers',    'Content-Range,X-Content-Range');
+  }
+  next();
+});
 
 // ═══════════════════════════════════════════════════════════════════
 //  SECURITY HEADERS
 //  NOTE: Do NOT set Cross-Origin-Opener-Policy here — it breaks
-//        cross-origin requests from Vercel to Render.
-//        Only set it on the FRONTEND (Vite config), not the API.
+//        cross-origin XHR from Vercel to Render.
 // ═══════════════════════════════════════════════════════════════════
 app.use((_req, res, next) => {
-  res.setHeader('X-Powered-By',       'FindIt API');
+  res.setHeader('X-Powered-By',           'FindIt API');
   res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('X-Frame-Options',    'DENY');
-  res.setHeader('Referrer-Policy',    'strict-origin-when-cross-origin');
-  // ⚠️  DO NOT add Cross-Origin-Opener-Policy here —
-  //     it breaks cross-origin XHR from Vercel frontend
+  res.setHeader('X-Frame-Options',        'DENY');
+  res.setHeader('Referrer-Policy',        'strict-origin-when-cross-origin');
+  // ⚠️ NO Cross-Origin-Opener-Policy — breaks cross-origin XHR
   next();
 });
 
@@ -132,7 +150,7 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // ═══════════════════════════════════════════════════════════════════
-//  STATIC UPLOADS
+//  STATIC FILE SERVING
 // ═══════════════════════════════════════════════════════════════════
 const UPLOADS_DIR = path.join(__dirname, 'uploads');
 if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
@@ -154,8 +172,8 @@ app.use((req, res, next) => {
     const ms     = Date.now() - start;
     const status = res.statusCode;
 
-    stats.totalMs           += ms;
-    stats.statuses[status]   = (stats.statuses[status] || 0) + 1;
+    stats.totalMs          += ms;
+    stats.statuses[status]  = (stats.statuses[status] || 0) + 1;
 
     if (status >= 400) {
       stats.errors++;
@@ -186,7 +204,9 @@ app.use((req, res, next) => {
       }[req.method] || C.white;
 
       const statusColor = status < 300 ? C.bGreen
-        : status < 400 ? C.bCyan : status < 500 ? C.bYellow : C.bRed;
+        : status < 400 ? C.bCyan
+        : status < 500 ? C.bYellow
+        : C.bRed;
       const msColor     = ms < 100 ? C.bGreen : ms < 500 ? C.bYellow : C.bRed;
       const statusIcon  = status < 300 ? '✔' : status < 400 ? '↪' : status < 500 ? '✘' : '💥';
 
@@ -211,11 +231,11 @@ app.use((req, res, next) => {
 function mountRoutes() {
   const routes = [
     { prefix: '/api/auth',          file: './routes/authRoutes',        label: 'Auth'          },
-    { prefix: '/api/items',         file: './routes/itemRoutes',         label: 'Items'         },
-    { prefix: '/api/matches',       file: './routes/matchRoutes',        label: 'Matches'       },
-    { prefix: '/api/notifications', file: './routes/notificationRoutes', label: 'Notifications' },
-    { prefix: '/api/contact',       file: './routes/contactRoutes',      label: 'Contact'       },
-    { prefix: '/api/subscribe',     file: './routes/subscribeRoutes',    label: 'Subscribe'     },
+    { prefix: '/api/items',         file: './routes/itemRoutes',        label: 'Items'         },
+    { prefix: '/api/matches',       file: './routes/matchRoutes',       label: 'Matches'       },
+    { prefix: '/api/notifications', file: './routes/notificationRoutes',label: 'Notifications' },
+    { prefix: '/api/contact',       file: './routes/contactRoutes',     label: 'Contact'       },
+    { prefix: '/api/subscribe',     file: './routes/subscribeRoutes',   label: 'Subscribe'     },
   ];
 
   const PAD_LABEL  = 16;
@@ -281,7 +301,7 @@ const fmtUptime = (ms) => {
 };
 
 // ═══════════════════════════════════════════════════════════════════
-//  ROOT
+//  ROOT ROUTE
 // ═══════════════════════════════════════════════════════════════════
 app.get('/', async (_req, res) => {
   let dbOk = false;
@@ -291,14 +311,20 @@ app.get('/', async (_req, res) => {
   const successRate = stats.total > 0 ? Math.round((stats.success / stats.total) * 100) : 100;
 
   return res.json({
-    success: true,
-    name:    'FindIt API',
-    version: '1.0.0',
-    status:  'online',
-    message: '🔍 FindIt Lost & Found API Server is running',
-    server:  { node: process.version, environment: NODE_ENV, port: PORT, uptime: fmtUptime(Date.now() - SERVER_START) },
+    success:  true,
+    name:     'FindIt API',
+    version:  '1.0.0',
+    status:   'online',
+    message:  '🔍 FindIt Lost & Found API Server is running',
+    server:   { node: process.version, environment: NODE_ENV, port: PORT, uptime: fmtUptime(Date.now() - SERVER_START) },
     database: { status: dbOk ? 'connected' : 'disconnected' },
-    performance: { total_requests: stats.total, success: stats.success, errors: stats.errors, success_rate: `${successRate}%`, avg_response: `${avgMs}ms` },
+    performance: {
+      total_requests: stats.total,
+      success:        stats.success,
+      errors:         stats.errors,
+      success_rate:   `${successRate}%`,
+      avg_response:   `${avgMs}ms`,
+    },
     timestamp: new Date().toISOString(),
   });
 });
@@ -330,21 +356,21 @@ app.get('/api/health', async (_req, res) => {
       pattern_rules:   ['*.vercel.app', '*.onrender.com'],
     },
     slowest_requests: stats.slowest,
-    timestamp: new Date().toISOString(),
-    version:   '1.0.0',
+    timestamp:        new Date().toISOString(),
+    version:          '1.0.0',
   });
 });
 
 // ═══════════════════════════════════════════════════════════════════
-//  TEST
+//  TEST / DEBUG ROUTE
 // ═══════════════════════════════════════════════════════════════════
 app.get('/api/test', (_req, res) => {
   return res.json({
-    success:  true,
-    message:  '🔍 FindIt API test endpoint — all systems go',
-    routes:   ROUTE_REGISTRY,
-    methods:  stats.methods,
-    statuses: stats.statuses,
+    success: true,
+    message: '🔍 FindIt API test endpoint — all systems go',
+    routes:  ROUTE_REGISTRY,
+    methods: stats.methods,
+    statuses:stats.statuses,
     top_routes: Object.entries(stats.routes)
       .sort((a, b) => b[1] - a[1]).slice(0, 10)
       .map(([route, hits]) => ({ route, hits })),
@@ -353,24 +379,41 @@ app.get('/api/test', (_req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════════════
-//  404
+//  404 HANDLER
 // ═══════════════════════════════════════════════════════════════════
 app.use((req, res) => {
+  // Re-apply CORS on 404s so the browser can read the error
+  const origin = req.headers.origin;
+  if (isOriginAllowed(origin)) {
+    res.setHeader('Access-Control-Allow-Origin',      origin || '*');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+  }
   return res.status(404).json({
     success: false,
     message: `Route not found: ${req.method} ${req.path}`,
-    hint:    'GET /api/health for status',
+    hint:    'GET /api/health for status · GET /api/test for route list',
   });
 });
 
 // ═══════════════════════════════════════════════════════════════════
 //  GLOBAL ERROR HANDLER
 // ═══════════════════════════════════════════════════════════════════
-app.use((err, _req, res, _next) => {
-  console.error(clr(C.bRed, `\n  [ERROR] ${err.message}\n`));
+app.use((err, req, res, _next) => {
+  console.error(clr(C.bRed, `\n  [ERROR] ${err.stack || err.message}\n`));
+
+  // Always re-apply CORS headers on error responses —
+  // without this the browser blocks the error and shows a misleading CORS error
+  const origin = req.headers.origin;
+  if (isOriginAllowed(origin)) {
+    res.setHeader('Access-Control-Allow-Origin',      origin || '*');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Methods',     'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers',     'Content-Type,Authorization,X-Requested-With,Accept');
+  }
+
   return res.status(err.status || 500).json({
     success: false,
-    message: IS_PROD ? 'Internal server error' : err.message,
+    message: IS_PROD ? 'Internal server error' : (err.message || 'Unknown error'),
   });
 });
 
@@ -446,10 +489,12 @@ async function boot() {
       { label: '📧 Subscribe',     prefix: '/api/subscribe'     },
     ].forEach(({ label, prefix }) => {
       const count  = ROUTE_REGISTRY.filter(r => r.path.startsWith(prefix)).length;
-      const status = count > 0 ? clr(C.bGreen, `✔  ${count} route${count !== 1 ? 's' : ''}`) : clr(C.bYellow, '⚠  0 routes');
-      const lc     = label.replace(/\x1b\[[0-9;]*m/g, '');
-      const sc     = status.replace(/\x1b\[[0-9;]*m/g, '');
-      const sp     = Math.max(1, BW - 2 - lc.length - 2 - sc.length);
+      const status = count > 0
+        ? clr(C.bGreen, `✔  ${count} route${count !== 1 ? 's' : ''}`)
+        : clr(C.bYellow, '⚠  0 routes');
+      const lc = label.replace(/\x1b\[[0-9;]*m/g, '');
+      const sc = status.replace(/\x1b\[[0-9;]*m/g, '');
+      const sp = Math.max(1, BW - 2 - lc.length - 2 - sc.length);
       console.log(clr(C.bBlue, '║') + `  ${clr(C.white, label)}  ${status}` + ' '.repeat(sp) + clr(C.bBlue, '║'));
     });
 
@@ -470,15 +515,22 @@ async function boot() {
     );
   });
 
+  // ── Graceful shutdown ─────────────────────────────────────────
   const shutdown = (sig) => {
-    console.log(`\n  ${clr(C.bYellow, `[${sig}] Shutting down...`)}`);
-    server.close(() => { console.log(clr(C.bGreen, '  ✔ Server closed.\n')); process.exit(0); });
-    setTimeout(() => { console.error(clr(C.bRed, '  ✘ Forced exit.')); process.exit(1); }, 8000);
+    console.log(`\n  ${clr(C.bYellow, `[${sig}] Shutting down gracefully...`)}`);
+    server.close(() => {
+      console.log(clr(C.bGreen, '  ✔ Server closed cleanly.\n'));
+      process.exit(0);
+    });
+    setTimeout(() => {
+      console.error(clr(C.bRed, '  ✘ Forced exit after timeout.'));
+      process.exit(1);
+    }, 8_000);
   };
 
   process.on('SIGTERM', () => shutdown('SIGTERM'));
   process.on('SIGINT',  () => shutdown('SIGINT'));
-  process.on('uncaughtException',  (err)    => console.error(clr(C.bRed, `\n  [UNCAUGHT] ${err.message}`)));
+  process.on('uncaughtException',  (err)    => console.error(clr(C.bRed, `\n  [UNCAUGHT]  ${err.stack  || err.message}`)));
   process.on('unhandledRejection', (reason) => console.error(clr(C.bRed, `\n  [UNHANDLED] ${String(reason)}`)));
 }
 
