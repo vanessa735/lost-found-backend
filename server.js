@@ -88,6 +88,9 @@ const ALLOWED_ORIGINS = [
   'http://127.0.0.1:3000',
   'http://127.0.0.1:5001',
   'http://127.0.0.1:5173',
+  // ── Production ────────────────────────────────────────────────────
+  'https://finditbridge.vercel.app',          // ← your Vercel frontend
+  'https://lost-found-backend-32lt.onrender.com', // ← your Render backend
   ...(process.env.ALLOWED_ORIGINS
     ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
     : []),
