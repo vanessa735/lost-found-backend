@@ -38,19 +38,34 @@ const isOriginAllowed = (origin) => {
 };
 
 const io = new Server(server, {
-    cors: {
-        origin: (origin, cb) => {
-            if (!origin || isOriginAllowed(origin)) return cb(null, true);
-            return cb(new Error(`Socket.IO CORS: ${origin}`));
-        },
-        methods:     ['GET', 'POST'],
-        credentials: false,
+  cors: {
+    origin: (origin, cb) => {
+      if (!origin || isOriginAllowed(origin)) return cb(null, true);
+      return cb(new Error(`Socket.IO CORS blocked: ${origin}`));
     },
-    transports:   ['polling', 'websocket'],
-    upgradeTimeout: 10000,
-    pingTimeout:    30000,
-    pingInterval:   15000,
-    allowEIO3:      true,
+    methods:     ['GET', 'POST'],
+    credentials: false,
+  },
+  // ✅ Start with polling only — let client upgrade naturally
+  transports: ['polling', 'websocket'],
+
+  // ✅ Generous timeouts — prevents the rapid connect/disconnect loop
+  pingTimeout:    60000,   // 60s (was 30s — too short)
+  pingInterval:   25000,   // 25s heartbeat
+  upgradeTimeout: 30000,   // 30s to upgrade from polling→websocket
+  connectTimeout: 45000,   // 45s to complete handshake
+
+  // ✅ Allow older clients
+  allowEIO3: true,
+
+  // ✅ Prevent memory leaks from rapid reconnects
+  maxHttpBufferSize: 1e6,  // 1MB max message
+
+  // ✅ Cookie false (no session needed)
+  cookie: false,
+
+  // ✅ Path (must match frontend)
+  path: '/socket.io/',
 });
 
 const onlineUsers = new Map();
@@ -406,15 +421,24 @@ app.use((err, req, res, _next) => {
 //  BOOT
 // ═══════════════════════════════════════════════════════════════════
 async function boot() {
-    let dbOk=false, dbMs=0;
-    try {
-        const t = Date.now();
-        await db.query('SELECT 1');
-        dbMs = Date.now()-t;
-        dbOk = true;
-    } catch (err) {
-        console.error(`[DB] Connection failed: ${err.message}`);
-    }
+     let dbOk = false, dbMs = 0;
+  try {
+    const t = Date.now();
+    await db.query('SELECT 1');
+    dbMs = Date.now() - t;
+    dbOk = true;
+  } catch (err) {
+    console.error(`[DB] Connection failed: ${err.message}`);
+  }
+
+  // ✅ Verify email on startup
+  let emailOk = false;
+  try {
+    const { verifyTransporter } = require('./controllers/passwordResetController');
+    emailOk = await verifyTransporter();
+  } catch (e) {
+    console.warn('[Boot] Email verify skipped:', e.message);
+  }
 
     server.listen(PORT, () => {
         const BW  = 64;
