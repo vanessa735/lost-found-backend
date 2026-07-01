@@ -382,10 +382,13 @@ exports.changePassword = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────
-//  GET ALL USERS  (for messaging — shows all registered users)
+//  GET ALL USERS — for messaging directory
+//  Returns every user except: self + admins
 // ─────────────────────────────────────────────────────────────────
 exports.getAllUsers = async (req, res) => {
     try {
+        console.log(`[getAllUsers] Called by user_id=${req.user.id}`);
+
         const [users] = await db.query(
             `SELECT
                 id,
@@ -397,11 +400,14 @@ exports.getAllUsers = async (req, res) => {
                 city,
                 created_at
              FROM users
-             WHERE id != ?
+             WHERE id       != ?
+               AND user_type != 'admin'
              ORDER BY full_name ASC
              LIMIT 500`,
             [req.user.id]
         );
+
+        console.log(`[getAllUsers] Found ${users.length} users`);
 
         const data = users.map(u => ({
             id:            u.id,
@@ -420,7 +426,11 @@ exports.getAllUsers = async (req, res) => {
             data,
         });
     } catch (err) {
-        console.error('[GetAllUsers]', err.message);
-        return res.status(500).json({ success: false, message: 'Failed to fetch users' });
+        console.error('[getAllUsers] ERROR:', err.message);
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to fetch users',
+            error:   err.message,
+        });
     }
 };
