@@ -7,7 +7,9 @@ USE lost_and_found_db;
 
 -- Drop in correct FK order
 DROP TABLE IF EXISTS notifications;
+DROP TABLE IF EXISTS messages;
 DROP TABLE IF EXISTS matches;
+DROP TABLE IF EXISTS conversations;
 DROP TABLE IF EXISTS items;
 DROP TABLE IF EXISTS categories;
 DROP TABLE IF EXISTS users;
@@ -99,6 +101,46 @@ CREATE TABLE matches (
     UNIQUE KEY unique_match (lost_item_id, found_item_id),
     FOREIGN KEY (lost_item_id)  REFERENCES items(id) ON DELETE CASCADE,
     FOREIGN KEY (found_item_id) REFERENCES items(id) ON DELETE CASCADE
+);
+
+-- =====================
+-- CONVERSATIONS TABLE
+-- =====================
+CREATE TABLE conversations (
+    id               INT          AUTO_INCREMENT PRIMARY KEY,
+    item_id          INT          NOT NULL,
+    item_title       VARCHAR(200) NOT NULL,
+    item_type        ENUM('lost','found') NOT NULL,
+    user_one_id      INT          NOT NULL,
+    user_two_id      INT          NOT NULL,
+    user_one_name    VARCHAR(200) NOT NULL,
+    user_two_name    VARCHAR(200) NOT NULL,
+    last_message     TEXT         DEFAULT NULL,
+    last_sender_id   INT          DEFAULT NULL,
+    typing_user_id   INT          DEFAULT NULL,
+    created_at       TIMESTAMP    DEFAULT CURRENT_TIMESTAMP,
+    updated_at       TIMESTAMP    DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (item_id)        REFERENCES items(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_one_id)    REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_two_id)    REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- =====================
+-- MESSAGES TABLE
+-- =====================
+CREATE TABLE messages (
+    id                  INT          AUTO_INCREMENT PRIMARY KEY,
+    conversation_id     INT          NOT NULL,
+    sender_id           INT          NOT NULL,
+    sender_name         VARCHAR(200) NOT NULL,
+    content             TEXT         DEFAULT NULL,
+    image_url           VARCHAR(500) DEFAULT NULL,
+    reply_to_message_id INT          DEFAULT NULL,
+    reactions           JSON         DEFAULT NULL,
+    created_at          TIMESTAMP    DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (conversation_id)     REFERENCES conversations(id) ON DELETE CASCADE,
+    FOREIGN KEY (sender_id)           REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (reply_to_message_id) REFERENCES messages(id) ON DELETE SET NULL
 );
 
 -- =====================

@@ -236,6 +236,7 @@ function mountRoutes() {
     { prefix: '/api/notifications', file: './routes/notificationRoutes',label: 'Notifications' },
     { prefix: '/api/contact',       file: './routes/contactRoutes',     label: 'Contact'       },
     { prefix: '/api/subscribe',     file: './routes/subscribeRoutes',   label: 'Subscribe'     },
+    { prefix: '/api/messages',      file: './routes/messageRoutes',     label: 'Messages'      },
   ];
 
   const PAD_LABEL  = 16;

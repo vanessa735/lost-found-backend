@@ -75,6 +75,42 @@ CREATE TABLE IF NOT EXISTS matches (
     FOREIGN KEY (found_item_id) REFERENCES items(id)
 );
 
+-- Conversations table
+CREATE TABLE IF NOT EXISTS conversations (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    item_id INT NOT NULL,
+    item_title VARCHAR(255) NOT NULL,
+    item_type ENUM('lost','found') NOT NULL,
+    user_one_id INT NOT NULL,
+    user_two_id INT NOT NULL,
+    user_one_name VARCHAR(255) NOT NULL,
+    user_two_name VARCHAR(255) NOT NULL,
+    last_message TEXT,
+    last_sender_id INT,
+    typing_user_id INT DEFAULT NULL,
+    last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (item_id) REFERENCES items(id),
+    FOREIGN KEY (user_one_id) REFERENCES users(id),
+    FOREIGN KEY (user_two_id) REFERENCES users(id)
+);
+
+-- Messages table
+CREATE TABLE IF NOT EXISTS messages (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    conversation_id INT NOT NULL,
+    sender_id INT NOT NULL,
+    sender_name VARCHAR(255) NOT NULL,
+    content TEXT DEFAULT NULL,
+    image_url VARCHAR(255) DEFAULT NULL,
+    reply_to_message_id INT DEFAULT NULL,
+    reactions JSON DEFAULT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (conversation_id) REFERENCES conversations(id),
+    FOREIGN KEY (sender_id) REFERENCES users(id),
+    FOREIGN KEY (reply_to_message_id) REFERENCES messages(id)
+);
+
 -- Notifications table
 CREATE TABLE IF NOT EXISTS notifications (
     id INT AUTO_INCREMENT PRIMARY KEY,
