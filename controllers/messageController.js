@@ -114,6 +114,8 @@ const sendMessage = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Conversation or item must be provided' });
     }
 
+    let relatedItemId = null;
+
     if (conversationId) {
       const [existing] = await db.query(
         `SELECT * FROM conversations
@@ -128,6 +130,7 @@ const sendMessage = async (req, res) => {
       const conv = existing[0];
       itemTitle = conv.item_title;
       itemType = conv.item_type;
+      relatedItemId = conv.item_id;
       otherUserId = conv.user_one_id === req.user.id ? conv.user_two_id : conv.user_one_id;
       otherUserName = conv.user_one_id === req.user.id ? conv.user_two_name : conv.user_one_name;
     } else {
@@ -139,6 +142,7 @@ const sendMessage = async (req, res) => {
       const item = items[0];
       itemTitle = item.title;
       itemType = item.type;
+      relatedItemId = item.id;
       const otherUser = item.user_id === req.user.id ? null : item.user_id;
 
       if (!otherUser) {
@@ -188,6 +192,23 @@ const sendMessage = async (req, res) => {
          WHERE id = ?`,
       [content || 'Photo', req.user.id, conversationId]
     );
+
+    if (otherUserId) {
+      try {
+        await db.query(
+          `INSERT INTO notifications
+             (user_id, type, title, message, related_item_id)
+           VALUES (?, 'new_message', 'New Message Received', ?, ?)`,
+          [
+            otherUserId,
+            `${senderName} sent you a new message about "${itemTitle}".`,
+            relatedItemId || null,
+          ]
+        );
+      } catch (notifErr) {
+        console.error('[messageController] Message notification insert error:', notifErr.message);
+      }
+    }
 
     const [messageRows] = await db.query('SELECT * FROM messages WHERE id = ?', [messageId]);
     const createdMessage = messageRows[0];

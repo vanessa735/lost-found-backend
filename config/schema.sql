@@ -147,14 +147,15 @@ CREATE TABLE messages (
 -- NOTIFICATIONS TABLE
 -- =====================
 CREATE TABLE notifications (
-    id              INT          AUTO_INCREMENT PRIMARY KEY,
-    user_id         INT          NOT NULL,
-    type            VARCHAR(50)  DEFAULT 'info',
-    title           VARCHAR(200) NOT NULL,
-    message         TEXT         NOT NULL,
-    related_item_id INT          DEFAULT NULL,
-    is_read         TINYINT(1)   DEFAULT 0,
-    created_at      TIMESTAMP    DEFAULT CURRENT_TIMESTAMP,
+    id               INT          AUTO_INCREMENT PRIMARY KEY,
+    user_id          INT          NOT NULL,
+    type             VARCHAR(50)  DEFAULT 'info',
+    title            VARCHAR(200) NOT NULL,
+    message          TEXT         NOT NULL,
+    related_item_id  INT          DEFAULT NULL,
+    related_match_id INT          DEFAULT NULL,
+    is_read          TINYINT(1)   DEFAULT 0,
+    created_at       TIMESTAMP    DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
