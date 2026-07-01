@@ -17,8 +17,7 @@ router.put('/profile',         protect, auth.updateProfile);
 router.put('/change-password', protect, auth.changePassword);
 router.post('/upload-avatar',  protect, upload.single('avatar'), auth.uploadProfileImage);
 
-// ── Users directory for messaging ─────────────────────────────────
-// IMPORTANT: This must be defined BEFORE any wildcard routes
+// ── Users directory (MUST be here) ───────────────────────────────
 router.get('/users/all',       protect, auth.getAllUsers);
 
 module.exports = router;
