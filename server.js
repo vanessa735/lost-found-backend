@@ -53,12 +53,8 @@ const io = new Server(server, {
     allowEIO3:      true,
 });
 
-// ── Online presence ────────────────────────────────────────────────
 const onlineUsers = new Map();
-
-const broadcastOnline = () => {
-    io.emit('users:online', Array.from(onlineUsers.values()));
-};
+const broadcastOnline = () => io.emit('users:online', Array.from(onlineUsers.values()));
 
 io.on('connection', (socket) => {
     console.log(`[Socket.IO] Connected: ${socket.id}`);
@@ -78,22 +74,18 @@ io.on('connection', (socket) => {
 
     socket.on('conversation:join',  ({ conversationId }) => { if (conversationId) socket.join(`conv:${conversationId}`); });
     socket.on('conversation:leave', ({ conversationId }) => { if (conversationId) socket.leave(`conv:${conversationId}`); });
-
     socket.on('typing:start', ({ conversationId, userId, userName }) => {
         socket.to(`conv:${conversationId}`).emit('typing:update', { conversationId, userId, userName, typing: true });
     });
     socket.on('typing:stop', ({ conversationId, userId }) => {
         socket.to(`conv:${conversationId}`).emit('typing:update', { conversationId, userId, typing: false });
     });
-
     socket.on('message:send', ({ conversationId, message }) => {
         socket.to(`conv:${conversationId}`).emit('message:new', { conversationId, message });
     });
-
     socket.on('message:reaction', ({ conversationId, messageId, reaction, userId }) => {
         socket.to(`conv:${conversationId}`).emit('message:reaction:update', { conversationId, messageId, reaction, userId });
     });
-
     socket.on('disconnect', () => {
         const uid = socket.data.userId;
         if (uid) { onlineUsers.delete(uid); broadcastOnline(); }
@@ -119,23 +111,18 @@ const clr  = (c, t) => `${c}${t}${C.reset}`;
 const bold = (t)    => `${C.bold}${t}${C.reset}`;
 const dim  = (t)    => `${C.dim}${t}${C.reset}`;
 
-// ═══════════════════════════════════════════════════════════════════
-//  CONSTANTS
-// ═══════════════════════════════════════════════════════════════════
 const SERVER_START = Date.now();
 const NODE_ENV     = process.env.NODE_ENV || 'development';
 const PORT         = parseInt(process.env.PORT || '5001', 10);
 const IS_PROD      = NODE_ENV === 'production';
 
-// ═══════════════════════════════════════════════════════════════════
-//  STATS
-// ═══════════════════════════════════════════════════════════════════
 const stats = {
     total:0, success:0, errors:0, totalMs:0,
     methods:  { GET:0, POST:0, PUT:0, DELETE:0, PATCH:0, OPTIONS:0 },
     statuses: {}, routes:{}, slowest:[], recent:[], errorLog:[],
 };
 const ROUTE_REGISTRY = [];
+const FAILED_ROUTES  = [];
 
 // ═══════════════════════════════════════════════════════════════════
 //  CORS
@@ -167,9 +154,6 @@ app.use((req, res, next) => {
     next();
 });
 
-// ═══════════════════════════════════════════════════════════════════
-//  SECURITY HEADERS
-// ═══════════════════════════════════════════════════════════════════
 app.use((_req, res, next) => {
     res.setHeader('X-Powered-By',           'FindIt API');
     res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -178,15 +162,9 @@ app.use((_req, res, next) => {
     next();
 });
 
-// ═══════════════════════════════════════════════════════════════════
-//  BODY PARSERS
-// ═══════════════════════════════════════════════════════════════════
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// ═══════════════════════════════════════════════════════════════════
-//  STATIC FILES
-// ═══════════════════════════════════════════════════════════════════
 const UPLOADS_DIR = path.join(__dirname, 'uploads');
 if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 app.use('/uploads', express.static(UPLOADS_DIR));
@@ -237,25 +215,31 @@ app.use((req, res, next) => {
 });
 
 // ═══════════════════════════════════════════════════════════════════
-//  ROUTE LOADER
+//  ROUTE LOADER — WITH DETAILED ERROR REPORTING
 // ═══════════════════════════════════════════════════════════════════
 function mountRoutes() {
     const routes = [
-        { prefix: '/api/auth',          file: './routes/authRoutes',         label: 'Auth'          },
-        { prefix: '/api/otp',           file: './routes/otpRoutes',          label: 'OTP'           },
-        { prefix: '/api/items',         file: './routes/itemRoutes',         label: 'Items'         },
+        { prefix: '/api/auth',          file: './routes/authRoutes',          label: 'Auth'           },
+        { prefix: '/api/otp',           file: './routes/otpRoutes',           label: 'OTP'            },
         { prefix: '/api/password',      file: './routes/passwordResetRoutes', label: 'Password Reset' },
-        { prefix: '/api/matches',       file: './routes/matchRoutes',        label: 'Matches'       },
-        { prefix: '/api/notifications', file: './routes/notificationRoutes', label: 'Notifications' },
-        { prefix: '/api/contact',       file: './routes/contactRoutes',      label: 'Contact'       },
-        { prefix: '/api/subscribe',     file: './routes/subscribeRoutes',    label: 'Subscribe'     },
-        { prefix: '/api/messages',      file: './routes/messageRoutes',      label: 'Messages'      },
+        { prefix: '/api/items',         file: './routes/itemRoutes',          label: 'Items'          },
+        { prefix: '/api/matches',       file: './routes/matchRoutes',         label: 'Matches'        },
+        { prefix: '/api/notifications', file: './routes/notificationRoutes',  label: 'Notifications'  },
+        { prefix: '/api/contact',       file: './routes/contactRoutes',       label: 'Contact'        },
+        { prefix: '/api/subscribe',     file: './routes/subscribeRoutes',     label: 'Subscribe'      },
+        { prefix: '/api/messages',      file: './routes/messageRoutes',       label: 'Messages'       },
     ];
 
-    console.log(`\n  ${clr(C.bgGray+C.bWhite,'  ROUTE MOUNT REPORT  ')}\n  ${clr(C.gray,'─'.repeat(65))}`);
+    console.log(`\n  ${clr(C.bgGray+C.bWhite,'  ROUTE MOUNT REPORT  ')}\n  ${clr(C.gray,'─'.repeat(75))}`);
 
     routes.forEach(({ prefix, file, label }) => {
         try {
+            // Check if file exists first
+            const fullPath = path.resolve(__dirname, `${file}.js`);
+            if (!fs.existsSync(fullPath)) {
+                throw new Error(`File does not exist: ${fullPath}`);
+            }
+
             const router = require(file);
             app.use(prefix, router);
 
@@ -271,23 +255,33 @@ function mountRoutes() {
                 });
             }
             console.log(
-                `  ${clr(C.bGreen,'✔')} ${clr(C.bWhite,label.padEnd(16))} ` +
+                `  ${clr(C.bGreen,'✔')} ${clr(C.bWhite,label.padEnd(18))} ` +
                 `${clr(C.cyan,prefix.padEnd(28))} ${clr(C.gray,`${endpoints.length} endpoint(s)`)}`
             );
         } catch (err) {
+            FAILED_ROUTES.push({ label, prefix, file, error: err.message });
             console.log(
-                `  ${clr(C.bRed,'✘')} ${clr(C.bRed,label.padEnd(16))} ` +
+                `  ${clr(C.bRed,'✘')} ${clr(C.bRed,label.padEnd(18))} ` +
                 `${clr(C.red,`FAILED → ${err.message}`)}`
             );
+            console.log(`     ${clr(C.gray,`Stack: ${err.stack?.split('\n')[1]?.trim() || 'N/A'}`)}`);
         }
     });
 
-    console.log(`  ${clr(C.gray,'─'.repeat(65))}\n  ${clr(C.bGreen,`✔ ${ROUTE_REGISTRY.length} total endpoints mounted`)}\n`);
+    console.log(`  ${clr(C.gray,'─'.repeat(75))}`);
+    console.log(`  ${clr(C.bGreen,`✔ ${ROUTE_REGISTRY.length} endpoints mounted`)}`);
+    if (FAILED_ROUTES.length > 0) {
+        console.log(`  ${clr(C.bRed,`✘ ${FAILED_ROUTES.length} routes FAILED to mount:`)}`);
+        FAILED_ROUTES.forEach(f => {
+            console.log(`     ${clr(C.bRed,'•')} ${clr(C.bYellow,f.label)} (${f.file}): ${clr(C.red,f.error)}`);
+        });
+    }
+    console.log('');
 
-    // ── Debug: print all registered routes ───────────────────────
-    console.log('  Registered routes:');
+    // Print all registered routes
+    console.log(`  ${clr(C.bgGray+C.bWhite,'  REGISTERED ROUTES  ')}`);
     ROUTE_REGISTRY.forEach(r => {
-        console.log(`    ${r.methods.padEnd(12)} ${r.path}`);
+        console.log(`    ${clr(C.bGreen,r.methods.padEnd(12))} ${clr(C.bWhite,r.path)}`);
     });
     console.log('');
 }
@@ -321,6 +315,8 @@ app.get('/', async (_req, res) => {
         database:{ status:dbOk?'connected':'disconnected' },
         realtime:{ socket_io:'enabled', online_users:onlineUsers.size },
         performance:{ total_requests:stats.total, success:stats.success, errors:stats.errors, success_rate:`${rate}%`, avg_response:`${avg}ms` },
+        loaded_routes: ROUTE_REGISTRY.length,
+        failed_routes: FAILED_ROUTES.length,
         timestamp: new Date().toISOString(),
     });
 });
@@ -338,12 +334,29 @@ app.get('/api/health', async (_req, res) => {
         realtime:{ socket_io:'enabled', online_users:onlineUsers.size, transports:'polling+websocket' },
         requests:{ total:stats.total, success:stats.success, errors:stats.errors, success_rate:`${rate}%`, avg_response:`${avg}ms` },
         routes:  ROUTE_REGISTRY.map(r => `${r.methods} ${r.path}`),
+        failed_routes: FAILED_ROUTES,
         timestamp: new Date().toISOString(),
     });
 });
 
 app.get('/api/online-users', (_req, res) => {
     return res.json({ success:true, count:onlineUsers.size, data:Array.from(onlineUsers.values()) });
+});
+
+// Debug: show which routes loaded
+app.get('/api/debug/routes', (_req, res) => {
+    return res.json({
+        success: true,
+        loaded:  ROUTE_REGISTRY,
+        failed:  FAILED_ROUTES,
+        env: {
+            NODE_ENV,
+            has_EMAIL_USER: !!process.env.EMAIL_USER,
+            has_EMAIL_PASS: !!process.env.EMAIL_PASS,
+            has_JWT_SECRET: !!process.env.JWT_SECRET,
+            has_FRONTEND_URL: !!process.env.FRONTEND_URL,
+        },
+    });
 });
 
 app.get('/api/test', (_req, res) => {
@@ -367,7 +380,7 @@ app.use((req, res) => {
     return res.status(404).json({
         success:false,
         message:`Route not found: ${req.method} ${req.path}`,
-        hint:'GET /api/health · GET /api/test',
+        hint:'GET /api/health · GET /api/test · GET /api/debug/routes',
     });
 });
 
@@ -437,11 +450,15 @@ async function boot() {
             ['📡 Port',      clr(C.bGreen, String(PORT))],
             ['🌐 URL',       clr(C.bCyan,  `http://localhost:${PORT}`)],
             ['💚 Health',    clr(C.bCyan,  `http://localhost:${PORT}/api/health`)],
+            ['🔍 Debug',     clr(C.bCyan,  `http://localhost:${PORT}/api/debug/routes`)],
             ['⚡ Socket.IO', clr(C.cyan,   'polling → websocket upgrade')],
             ['🔧 Env',       clr(C.bYellow, NODE_ENV)],
             ['🗄️  DB',       dbOk
                 ? `${clr(C.bGreen,'✔ Connected')} ${clr(C.gray,`(${dbMs}ms)`)}`
                 : clr(C.bRed,'✘ Disconnected')],
+            ['📧 Email',     process.env.EMAIL_USER
+                ? `${clr(C.bGreen,'✔ Configured')} ${clr(C.gray,`(${process.env.EMAIL_USER})`)}`
+                : clr(C.bRed,'✘ NOT configured')],
         ].forEach(([l,v]) => console.log(colRow(l,v)));
 
         console.log(clr(C.bBlue,row()));
