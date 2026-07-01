@@ -242,7 +242,9 @@ app.use((req, res, next) => {
 function mountRoutes() {
     const routes = [
         { prefix: '/api/auth',          file: './routes/authRoutes',         label: 'Auth'          },
+        { prefix: '/api/otp',           file: './routes/otpRoutes',          label: 'OTP'           },
         { prefix: '/api/items',         file: './routes/itemRoutes',         label: 'Items'         },
+        { prefix: '/api/password',      file: './routes/passwordResetRoutes', label: 'Password Reset' },
         { prefix: '/api/matches',       file: './routes/matchRoutes',        label: 'Matches'       },
         { prefix: '/api/notifications', file: './routes/notificationRoutes', label: 'Notifications' },
         { prefix: '/api/contact',       file: './routes/contactRoutes',      label: 'Contact'       },
